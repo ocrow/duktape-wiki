@@ -19,6 +19,10 @@ Welcome to the official Duktape Wiki!
   [1.1](http://duktape.org/1.1.0/api.html)
   [1.0](http://duktape.org/1.0.0/api.html)
 
+## Getting started
+
+* FIXME: Add about 3-4 detailed examples here, move from guide
+
 ## How-To
 
 * [[How to use virtual properties|HowtoVirtualProperties]]
