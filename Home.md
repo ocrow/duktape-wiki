@@ -25,6 +25,7 @@ Welcome to the official Duktape Wiki!
 * [[How to use finalization|HowtoFinalization]]
 * [[How to work with buffers|HowtoBuffers]]
 * [[How to use modules|HowtoModules]]
+* [[How to use Node.js-like modules|HowtoNodejsModules]]
 * [[How to use coroutines|HowtoCoroutines]]
 * [[How to persist object references in native code|HowtoNativePersistentReferences]]
 * [[How to write a native constructor function|HowtoNativeConstructor]]
