@@ -1,93 +1,108 @@
-# How to work with buffers in Duktape 1.x
+# How to work with buffers in Duktape 2.x
 
-**This page applies to Duktape 1.x only.**
+**This page applies to Duktape 2.x only.**
 
-## Overview
+## Introduction
 
-Up to Duktape 1.2 all buffer values (plain buffers and Duktape.Buffer objects)
-were Duktape specific.  Khronos/ES6 typed arrays and Node.js Buffer objects
-were added in Duktape 1.3, with custom types still supported for backwards
-compatibility.  The plain buffer type is likely not going away (it is memory
-efficient and often enough) but the `Duktape.Buffer` type might be deprecated
-in a later version because it overlaps with `ArrayBuffer`.
-
-Duktape provides the following buffer and buffer-related types:
+### Overview of buffer types
 
 <table>
 <tr>
-<th>Type</th>
+<th>Buffer type</th>
 <th>Standard</th>
-<th>Duktape version</th>
+<th>C API type</th>
+<th>Ecmascript type</th>
 <th>Description</th>
 </tr>
 <tr>
 <td>Plain buffer</td>
 <td>No<br />Duktape&nbsp;specific</td>
-<td>1.0</td>
-<td>Plain, primitive buffer value (not an object), similar to how a plain string relates to a String object</td>
-</tr>
-<tr>
-<td>Duktape.Buffer object</td>
-<td>No<br />Duktape&nbsp;specific</td>
-<td>1.0</td>
-<td>Object wrapped plain buffer, similar to how a String object relates to a plain string</td>
-</tr>
-<tr>
-<td>Node.js Buffer object</td>
-<td>No<br />Node.js-like</td>
-<td>1.3</td>
-<td>Object with <a href="https://nodejs.org/api/buffer.html">Node.js Buffer API</a></td>
+<td>DUK_TAG_BUFFER</td>
+<td>[object ArrayBuffer]</td>
+<td>Plain memory-efficient buffer value (not an object).  Mimics an ArrayBuffer
+    for most Ecmascript behavior, separate type in C API.  Object coerces to an
+    actual ArrayBuffer instance.  Has virtual index properties.  (Behavior
+    changed in Duktape 2.x.)</td>
 </tr>
 <tr>
 <td>ArrayBuffer object</td>
 <td>Yes<br />Khronos/ES6</td>
-<td>1.3</td>
-<td>Standard object type for representing a byte array</td>
+<td>DUK_TAG_OBJECT</td>
+<td>[object ArrayBuffer]</td>
+<td>Standard object type for representing a byte array.  Has additional
+    non-standard virtual index properties.</td>
 </tr>
 <tr>
 <td>DataView, typed array objects</td>
 <td>Yes<br />Khronos/ES6</td>
-<td>1.3</td>
-<td>View objects to access an underlying ArrayBuffer</td>
+<td>DUK_TAG_OBJECT</td>
+<td>[object Uint8Array], etc</td>
+<td>Standard view objects to access an underlying ArrayBuffer.</td>
+</tr>
+<tr>
+<td>Node.js Buffer object</td>
+<td>No<br />Node.js-like</td>
+<td>DUK_TAG_OBJECT</td>
+<td>[object Buffer]</td>
+<td>Object with <a href="https://nodejs.org/api/buffer.html">Node.js Buffer API</a>.
+    FIXME: comment on version.</td>
 </tr>
 </table>
 
-The three kinds of buffer values have similarities and differences:
+### ArrayBuffer and typed arrays recommended
 
-* Plain buffers and `Duktape.Buffer` are Duktape specific, and only provide
-  an `uint8` access into an underlying buffer.  Plain buffers can be fixed,
-  dynamic (resizable), or external (point to user controlled buffer outside
-  of Duktape control).  A plain buffer value coerces to `Duktape.Buffer` at
-  present, similarly to how a plain string object coerces to `String` object.
-  (This behavior might later change so that a plain buffer coerces to
-  `ArrayBuffer` which would allow `Duktape.Buffer` to be deprecated.)
-
-* `ArrayBuffer` encapsulates a byte buffer.  Typed array objects are views
-  into an underlying `ArrayBuffer`, e.g. `Uint32Array` provides a virtual
-  array which maps to successive 32-bit values in the underlying array.  Typed
-  arrays have host specific endianness and have alignment requirements with
-  respect to the underlying buffer.  `DataView` provides a set of accessor for
-  reading and writing arbitrarily aligned elements (integers and floats) in an
-  underlying `ArrayBuffer`; endianness can be specified explicitly so
-  `DataView` is useful for e.g. file format manipulation.
-
-* Node.js `Buffer` provides both a `uint8` virtual array and a `DataView`-like
-  set of element accessors, all in a single object.  Since Node.js is not a
-  stable specification like ES6, Node.js Buffers are more of a moving target
-  than typed arrays.
-
-Here's a more detailed table of each object type, including object properties,
-coercion behavior, etc:
-
-* https://github.com/svaarala/duktape/blob/master/doc/buffers.rst#summary-of-buffer-related-values
-
-Because Khronos/ES6 typed arrays is the best standard for buffers, that should
-be the preferred choice for new code.  Here's a good tutorial on getting started
-with typed arrays:
+New code should use Khronos/ES6 ArrayBuffers and typed arrays (such as
+Uint8Array) unless there's a good reason for doing otherwise.  Here's one
+tutorial on getting started with typed arrays:
 
 * http://www.html5rocks.com/en/tutorials/webgl/typed_arrays/
 
-## Useful references
+Duktape provides some additional functionality on top of the Khronos/ES6
+requirements.  For example, there are virtual index properties (`buf[0]` etc)
+for ArrayBuffers to allow them to be manipulated without an explicit view
+object (such as `Uint8Array`).  Custom behaviors are discussed below.
+
+`ArrayBuffer` encapsulates a byte buffer.  Typed array objects are views
+into an underlying `ArrayBuffer`, e.g. `Uint32Array` provides a virtual
+array which maps to successive 32-bit values in the underlying array.  Typed
+arrays have host specific endianness and have alignment requirements with
+respect to the underlying buffer.  `DataView` provides a set of accessor for
+reading and writing arbitrarily aligned elements (integers and floats) in an
+underlying `ArrayBuffer`; endianness can be specified explicitly so
+`DataView` is useful for e.g. file format manipulation.
+
+### Plain buffers for low memory environments
+
+For very low memory environments plain buffers can be used in places where an
+ArrayBuffer would normally be used.  Plain buffers mimic ArrayBuffer behavior
+quite closely for Ecmascript code so often only small Ecmascript code changes
+are needed when moving between actual ArrayBuffers and plain buffers.  C code
+needs to be aware of the typing difference, however.
+
+Plain buffers only provide an `uint8` access into an underlying buffer.
+Plain buffers can be fixed, dynamic (resizable), or external (point to user
+controlled buffer outside of Duktape control).  A plain buffer value coerces
+to `ArrayBuffer`, similarly to how a plain string object coerces to `String`
+object.
+
+### Node.js Buffer bindings
+
+Node.js Buffer bindings are useful when working with Node.js compatible code.
+
+Node.js `Buffer` provides both a `uint8` virtual array and a `DataView`-like
+set of element accessors, all in a single object.  Since Node.js is not a
+stable specification like ES6, Node.js Buffers are more of a moving target
+than typed arrays.
+
+### Buffer type mixing supported but not recommended
+
+Because the internal data type for all buffer objects is the same, they can be
+mixed to some extent.  For example, Node.js `Buffer.concat()` can be used to
+concatenate any buffer types.  However, the mixing behavior is liable to change
+over time so you should avoid mixing unless there's a clear advantage in doing
+so.
+
+### Useful references
 
 * [API calls tagged "buffer"](http://duktape.org/api.html#taglist-buffer)
   for dealing with plain buffers
@@ -108,13 +123,19 @@ with typed arrays:
 * [buffers.rst](https://github.com/svaarala/duktape/blob/master/doc/buffers.rst)
   describes the internals
 
-## Creating buffers
+  - A more detailed table of each object type, including object properties,
+    coercion behavior, etc: https://github.com/svaarala/duktape/blob/master/doc/buffers.rst#summary-of-buffer-related-values
+
+## API summary
+
+### Creating buffers
 
 <table>
 <tr>
 <th>Type</th>
 <th>C</th>
 <th>Ecmascript</th>
+<th>Notes</th>
 </tr>
 <tr>
 <td>plain buffer</td>
@@ -122,27 +143,22 @@ with typed arrays:
     <a href="http://duktape.org/api.html#duk_push_fixed_buffer">duk_push_fixed_buffer()</a><br />
     <a href="http://duktape.org/api.html#duk_push_dynamic_buffer">duk_push_dynamic_buffer()</a><br />
     <a href="http://duktape.org/api.html#duk_push_external_buffer">duk_push_external_buffer()</a></td>
-<td><a href="http://duktape.org/guide.html#builtin-duktape-buffer">Duktape.Buffer()</a></td>
-</tr>
-<tr>
-<td>Duktape.Buffer object</td>
-<td><a href="http://duktape.org/api.html#duk_push_buffer_object">duk_push_buffer_object()</a></td>
-<td><a href="http://duktape.org/guide.html#builtin-duktape-buffer">new Duktape.Buffer()</a></td>
-</tr>
-<tr>
-<td>Node.js Buffer object</td>
-<td><a href="http://duktape.org/api.html#duk_push_buffer_object">duk_push_buffer_object()</a></td>
-<td><a href="https://nodejs.org/api/buffer.html#buffer_class_buffer">new Buffer()</a></td>
+<td>ArrayBuffer.allocPlain()<br />
+    ArrayBuffer.plainOf()</td>
+<td>ArrayBuffer.plainOf() gets the underlying plain buffer from any buffer
+    object without creating a copy.</td>
 </tr>
 <tr>
 <td>ArrayBuffer object</td>
 <td><a href="http://duktape.org/api.html#duk_push_buffer_object">duk_push_buffer_object()</a></td>
 <td><a href="http://www.ecma-international.org/ecma-262/6.0/#sec-arraybuffer-constructor">new ArrayBuffer()</a></td>
+<td>&nbsp;</td>
 </tr>
 <tr>
 <td>DataView object</td>
 <td><a href="http://duktape.org/api.html#duk_push_buffer_object">duk_push_buffer_object()</a></td>
 <td><a href="http://www.ecma-international.org/ecma-262/6.0/#sec-dataview-constructor">new DataView()</a></td>
+<td>&nbsp;</td>
 </tr>
 <tr>
 <td>Typed array objects</td>
@@ -151,25 +167,153 @@ with typed arrays:
     <a href="http://www.ecma-international.org/ecma-262/6.0/#sec-typedarray-constructors">new Int32Array()</a><br />
     <a href="http://www.ecma-international.org/ecma-262/6.0/#sec-typedarray-constructors">new Float64Array()</a><br />
     etc</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>Node.js Buffer object</td>
+<td><a href="http://duktape.org/api.html#duk_push_buffer_object">duk_push_buffer_object()</a></td>
+<td><a href="https://nodejs.org/api/buffer.html#buffer_class_buffer">new Buffer()</a></td>
+<td>&nbsp;</td>
 </tr>
 </table>
 
-## Using buffers in Ecmascript code
+### Accessing buffer data
 
-### Plain buffer and Duktape.Buffer
+<table>
+<tr>
+<th>Type</th>
+<th>C</th>
+<th>Ecmascript</th>
+<th>Notes</th>
+</tr>
+<tr>
+<td>plain buffer</td>
+<td>duk_get_buffer()<br />
+    duk_require_buffer()</td>
+<td>buf[0], buf[1], ...<br />
+    buf.length</br />
+    buf.byteLength<br />
+    buf.byteOffset<br />
+    buf.BYTES_PER_ELEMENT</td>
+<td>Non-standard type.</td>
+</tr>
+<tr>
+<td>ArrayBuffer object</td>
+<td>duk_get_buffer_data()<br />
+    duk_require_buffer_data()</td>
+<td>new Uint8Array(buf)[0], ...<br />
+    buf[0], buf[1], ...<br />
+    buf.length</br />
+    buf.byteLength<br />
+    buf.byteOffset<br />
+    buf.BYTES_PER_ELEMENT</td>
+<td>Index properties, .length, .byteOffset, and .BYTES_PER_ELEMENT
+    are non-standard Duktape extensions.  Standard way to access
+    bytes is via a typed array view, e.g. Uint8Array.</td>
+</tr>
+<tr>
+<td>DataView object</td>
+<td>duk_get_buffer_data()<br />
+    duk_require_buffer_data()</td>
+<td>view.getInt16()<br />
+    view.setUint32()<br />
+    view[0], view[1], ...<br />
+    view.length</br />
+    view.byteLength<br />
+    view.byteOffset<br />
+    view.BYTES_PER_ELEMENT</td>
+<td>Index properties, .length, and .BYTES_PER_ELEMENT are non-standard
+    Duktape extensions.  The .buffer property contains the ArrayBuffer
+    which the view operates on.</td>
+</tr>
+<tr>
+<td>Typed array objects</td>
+<td>duk_get_buffer_data()<br />
+    duk_require_buffer_data()</td>
+<td>view[0], view[1], ...<br />
+    view.length<br />
+    view.byteLength<br />
+    view.byteOffset<br />
+    view.BYTES_PER_ELEMENT</td>
+<td>The .buffer property contains the ArrayBuffer the view operates on.</td>
+</tr>
+<tr>
+<td>Node.js Buffer object</td>
+<td>duk_get_buffer_data()<br />
+    duk_require_buffer_data()</td>
+<td>buf[0], buf[1], ...<br />
+    buf.length</br />
+    buf.byteLength<br />
+    buf.byteOffset<br />
+    buf.BYTES_PER_ELEMENT</td>
+<td>.byteLength, .byteOffset, and .BYTES_PER_ELEMENT are non-standard
+    Duktape extensions.</td>
+</tr>
+</table>
 
-A plain buffer value has virtual properties and provides index properties:
+### Configuring buffers
+
+<table>
+<tr>
+<th>Type</th>
+<th>C</th>
+<th>Ecmascript</th>
+<th>Notes</th>
+</tr>
+<tr>
+<td>plain buffer</td>
+<td><a href="http://duktape.org/api.html#duk_config_buffer">duk_config_buffer()</a><br />
+    <a href="http://duktape.org/api.html#duk_resize_buffer">duk_resize_buffer()</a><br />
+    <a href="http://duktape.org/api.html#duk_steal_buffer">duk_steal_buffer()</a></td>
+<td>n/a</td>
+<td>Fixed plain buffers cannot be configured.  Dynamic plain buffers can be
+    resized and their current allocation can be "stolen".  External plain
+    buffers can be reconfigured to map to a different memory area.</td>
+</tr>
+<tr>
+<td>ArrayBuffer object</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>After creation, ArrayBuffer objects cannot be modified.  However, their
+    underlying plain buffer can be reconfigured (depending on its type).</td>
+</tr>
+<tr>
+<td>DataView object</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>After creation, DataView objects cannot be modified.  However, their
+    underlying plain buffer can be reconfigured (depending on its type).</td>
+</tr>
+<tr>
+<td>Typed array objects</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>After creation, typed array objects cannot be modified.  However, their
+    underlying plain buffer can be reconfigured (depending on its type).</td>
+</tr>
+<tr>
+<td>Node.js Buffer object</td>
+<td>n/a</td>
+<td>n/a</td>
+<td>After creation, Node.js Buffer objects cannot be modified.  However, their
+    underlying plain buffer can be reconfigured (depending on its type).</td>
+</tr>
+</table>
+
+## Plain buffers
+
+A plain buffer value mimics an ArrayBuffer instance, and has virtual properties:
 
 ```js
-// Create a plain buffer of 8 bytes
-var plain = Duktape.Buffer(8);
+// Create a plain buffer of 8 bytes.
+var plain = ArrayBuffer.allocPlain(8);  // Duktape custom call
 
-// Fill it using index properties
+// Fill it using index properties.
 for (var i = 0; i < plain.length; i++) {
     plain[i] = 0x41 + i;
 }
 
-// Print other virtual properties
+// Print other virtual properties.
 print(plain.length);             // -> 8
 print(plain.byteLength);         // -> 8
 print(plain.byteOffset);         // -> 0
@@ -183,97 +327,104 @@ print(plain.dummy);              // -> undefined
 // Duktape JX format can be used for dumping
 print(Duktape.enc('jx', plain)); // -> |4142434445464748|
 
-// typeof is 'buffer'
-print(typeof plain);             // -> buffer
+// Plain buffers mimic ArrayBuffer behavior where applicable, e.g.
+print(typeof plain);             // -> object, like ArrayBuffer
+print(String(plain));            // -> [object ArrayBuffer], like ArrayBuffer
 ```
 
-A `Duktape.Buffer` is the "object counterpart" of a plain buffer.  It wraps
-a plain buffer, similarly to how a `String` object wraps a plain string.
-`Duktape.Buffer` also has the same virtual properties, and since it has an
+`ArrayBuffer` is the "object counterpart" of a plain buffer.  It wraps a
+plain buffer, similarly to how a `String` object wraps a plain string.
+`ArrayBuffer` also has the same virtual properties, and since it has an
 actual property table, new properties can also be added normally.
-
-```js
-// Create a Duktape.Buffer object of 8 bytes
-var buf = new Duktape.Buffer(8);
-
-// Fill it using index properties
-for (var i = 0; i < buf.length; i++) {
-    buf[i] = 0x41 + i;
-}
-
-// Print other virtual properties
-print(buf.length);             // -> 8
-print(buf.byteLength);         // -> 8
-print(buf.byteOffset);         // -> 0
-print(buf.BYTES_PER_ELEMENT);  // -> 1
-
-// Because a Duktape.Buffer has an actual property table, new properties
-// can be added normally (this behavior is similar to a String object).
-buf.dummy = 'foo';
-print(buf.dummy);              // -> foo
-
-// Duktape JX format can be used for dumping
-print(Duktape.enc('jx', buf)); // -> |4142434445464748|
-
-// typeof is 'object'
-print(typeof buf);                // -> object
-
-// typeof behavior mimics how plain string and String object work
-print(typeof 'foo');              // -> string
-print(typeof new String('foo'));  // -> object
-```
 
 You can easily convert between the two:
 
 ```js
-var plain1 = Duktape.Buffer(8);
+var plain1 = ArrayBuffer.allocPlain(8);
 
-// Convert a plain buffer to a Duktape.Buffer, both pointing to the same
+// Convert a plain buffer to a full ArrayBuffer, both pointing to the same
 // underlying buffer.
-var buf = new Duktape.Buffer(plain1)
+var buf = Object(plain1);
 
 // Get the plain buffer wrapped inside a Duktape.Buffer.
-var plain2 = Duktape.Buffer(buf);
+var plain2 = ArrayBuffer.plainOf(buf);  // Duktape custom call
 
 // No copies are made of 'plain1' in this process.
 print(plain1 === plain2);  // -> true
 ```
 
-To summarize, the main differences between a plain buffer and a
-`Duktape.Buffer` are:
+To summarize, the main differences between a plain buffer and an
+`ArrayBuffer` are:
 
-* A plain buffer is created using `Duktape.Buffer(length)`, i.e. when
-  called as a normal function.  A `Duktape.Buffer` is created using
-  `new Duktape.Buffer(length)`, i.e. when called as a constructor.
-  This behavior mimics how plain strings and `String` objects work.
+<table>
+<tr>
+<th>&nbsp;</th>
+<th>Plain buffer</th>
+<th>ArrayBuffer</th>
+<th>Notes</th>
+</tr>
+<tr>
+<td>Creation</td>
+<td>ArrayBuffer.allocPlain(length)<br />
+ArrayBuffer.allocPlain('stringValue')<br />
+ArrayBuffer.allocPlain([ 1, 2, 3, 4 ])</td>
+<td>new ArrayBuffer(length)</td>
+<td>ArrayBuffer.allocPlain() has other argument variants too.  C API
+can of course also be used for creation.</td>
+</tr>
+<tr>
+<td>typeof</td>
+<td>object</td>
+<td>object</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>Object.prototype.toString()</td>
+<td>[object ArrayBuffer]</td>
+<td>[object ArrayBuffer]</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>instanceof ArrayBuffer</td>
+<td>true</td>
+<td>true</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>Property table</td>
+<td>No</td>
+<td>Yes</td>
+<td>Property writes to a plain buffer are usually ignored; a setter inherited
+from ArrayBuffer.prototype can be triggered.
+</tr>
+<tr>
+<td>Allow finalizer</td>
+<td>No</td>
+<td>Yes</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>Object.isExtensible()</td>
+<td>false</td>
+<td>true</td>
+<td>&nbsp;</td>
+</tr>
+<tr>
+<td>buf.slice() result</td>
+<td>plain buffer</td>
+<td>ArrayBuffer</td>
+<td>`plain.slice()` returns a plain buffer.  To get a full ArrayBuffer slice,
+use e.g. `Object(plain.slice())`.
+</tr>
+</table>
 
-* A `Duktape.Buffer` has a property table so that new properties can
-  be added if necessary.
+Other notes:
 
-* A `Duktape.Buffer` can have a finalizer, a plain buffer cannot.
+* Duktape built-ins like `Duktape.dec()` create plain buffers to save
+  memory space; if you explicitly wish to work with ArrayBuffer objects
+  you can e.g. use `Object(Duktape.dec('hex', 'deadbeef'))`.
 
-* Typeof of a plain buffer is `buffer` while typeof of a `Duktape.Buffer`
-  is `object`.  This again mimics how plain strings and `String` objects
-  work.
-
-### Typed arrays
-
-Typed arrays are used in Ecmascript code like with other engines, see
-e.g. the following tutorial:
-
-* http://www.html5rocks.com/en/tutorials/webgl/typed_arrays/
-
-There are some custom behaviors discussed later in this document.
-
-### Node.js Buffers
-
-Node.js Buffers are used like with Node.js/V8, see e.g.:
-
-* https://nodejs.org/api/buffer.html
-
-There are some custom behaviors discussed later in this document.
-
-### JSON and JX serialization
+## JSON and JX serialization
 
 The Node.js Buffer type has a `.toJSON()` method so it gets serialized in
 standard `JSON.stringify()`:
@@ -286,8 +437,8 @@ print(JSON.stringify(buf));
 // {"type":"Buffer","data":[65,66,67,68]}
 ```
 
-`Duktape.Buffer`, `ArrayBuffer`, and typed array views don't have a `.toJSON()`
-so they'll be skipped by standard `JSON.stringify()`:
+`ArrayBuffer` and typed array views don't have a `.toJSON()` so they'll be
+skipped by standard `JSON.stringify()`:
 
 ```js
 var buf = Duktape.dec('hex', 'deadbeef');
@@ -342,6 +493,8 @@ print(Duktape.enc('jx', { myBuffer: u8a, mySlice: u8b }));
 Node.js Buffers, having a `.toJSON()`, will still serialize like with
 `JSON.stringify()` because `.toJSON()` takes precedence over JX built-in
 buffer serialization.
+
+FIXME: change Node.js Buffer behavior and skip .toJSON() for JX?
 
 ## Using buffers in C code
 
@@ -474,6 +627,8 @@ if (duk_is_buffer(ctx, idx_mybuffer)) {
 The Duktape C API for working with buffer objects is still experimental and
 somewhat tentative, and may undergo slight changes in Duktape 1.4.
 
+FIXME: reword
+
 Here's a test case with some basic usage:
 
 * https://github.com/svaarala/duktape/blob/master/tests/api/test-bufferobject-example-1.c
@@ -545,6 +700,8 @@ is a buffer object or not.  This is also the case for `String` objects: they
 type check as `DUK_TYPE_OBJECT` instead of `DUK_TYPE_STRING` and there's no
 other primitive to check their type.  Changing this behavior is tracked by:
 https://github.com/svaarala/duktape/issues/167.
+
+FIXME: add API
 
 In practice this is not a big issue: you can simply call
 `duk_require_buffer_data()` to get a data pointer and length.  The call will
@@ -704,8 +861,9 @@ buffer variant:
 
 Duktape allows some mixing of buffer types.  These mixing behaviors are
 not defined in the Khronos/ES6 or Node.js API specifications, so they are
-necessarily Duktape custom behavior.  The buffer type mixing behavior in
-Duktape 1.3 is a work in progress and likely to change in future versions.
+necessarily Duktape custom behavior.  The buffer type mixing behavior is
+likely to evolve over time, so you should only rely on it when there's a
+clear advantage in doing so.
 
 To understand how mixing works, it's important to note that there are
 really only two internal types for buffers:
@@ -724,22 +882,20 @@ really only two internal types for buffers:
 This allows for natural mixing, with some examples given below.
 
 Duktape provides the same virtual properties (`.length`, `.byteLength`,
-`.byteOffset`, `.BYTES_PER_ELEMENT`) for each buffer object type,
-so that mixing them is more natural.  For example, all buffer object types
-have `.byteOffset` and `.byteLength` properties even though they are not
-required by the standards for all types.
+`.byteOffset`, `.BYTES_PER_ELEMENT`) for each buffer object type (even
+when not required by e.g. ES6), so that mixing them is more natural.
 
-### Duktape.Buffer(buf) returns the underlying plain buffer
+### ArrayBuffer.plainOf() returns the underlying plain buffer
 
-Calling `Duktape.Buffer(buf)` (without `new`) returns the underlying plain
-buffer of any buffer object.  If the argument is a plain buffer, it is
-returned as is.  For example:
+`ArrayBuffer.plainOf()` returns the underlying plain buffer of any buffer
+object.  If the argument is a plain buffer, it is returned as is.  For
+example:
 
 ```js
 var buf = new ArrayBuffer(16);
 var u32 = new Uint32Array(buf);
-var plain_buf = Duktape.Buffer(buf);
-var plain_u32 = Duktape.Buffer(u32);
+var plain_buf = ArrayBuffer.plainOf(buf);
+var plain_u32 = ArrayBuffer.plainOf(u32);
 print(plain_buf === plain_u32);  // the same plain buffer is returned
 ```
 
@@ -751,7 +907,7 @@ var buf = new ArrayBuffer(64);
 var u32 = new Uint32Array(buf, 4, 7);   // offset 4, length 7x4=28 bytes
 print(u32.length);                      // prints: 7, i.e. element count
 print(u32.byteOffset, u32.byteLength);  // prints 4, 28
-var plain = Duktape.Buffer(u32);
+var plain = ArrayBuffer.plainOf(u32);
 print(plain.length);                    // prints: 64, because underlying
                                         // buffer is 64 bytes long
 ```
@@ -760,19 +916,22 @@ All buffer object types provide `.byteOffset` and `.byteLength` properties
 which allow you to read the slice information manually, and take it into
 account when e.g. dumping or converting buffers.
 
-### ArrayBuffer and Node.js Buffer constructors accept a plain buffer
+### Object(plainBuffer) promotes a buffer to an ArrayBuffer
 
-You can construct an ArrayBuffer using a plain buffer.  The plain buffer
-becomes the underlying buffer without a copy being made:
+`Object(plainBuffer)` returns an ArrayBuffer instance which uses the argument
+plain buffer for its storage, i.e. no copy is made:
 
 ```js
-var plain = Duktape.dec('hex', '4142434445464748');
-var buf = new ArrayBuffer(plain);
-buf[0] = 0x61;
-print(plain[0], buf[0]);  // same value because both back to 'plain'
+var plain = ArrayBuffer.allocPlain(16);
+var arrayBuf = Object(plain);
 ```
 
-Similarly for Node.js Buffer:
+### Node.js Buffer constructor treats a plain buffer like an ArrayBuffer
+
+FIXME: will be updated to match ArrayBuffer behavior.
+
+The Node.js Buffer constructors treats a plain buffer like an ArrayBuffer
+(which is generally the case for other bindings too):
 
 ```js
 var plain = Duktape.dec('hex', '4142434445464748');
@@ -787,21 +946,21 @@ Node.js Buffer so that both share the same underlying buffer:
 
 ```js
 var nodeBuffer = new Buffer('ABCDEFGH');
-var plainBuffer = Duktape.Buffer(nodeBuffer);
-var arrayBuffer = new ArrayBuffer(plainBuffer);
+var plainBuffer = ArrayBuffer.plainOf(nodeBuffer);
+var arrayBuffer = Object(plainBuffer);
 arrayBuffer[0] = 0x61;  // visible through nodeBuffer too
 print(JSON.stringify(nodeBuffer));  // -> {"type":"Buffer","data":[97,66,67,68,69,70,71,72]}
 ```
 
-Slice information is lost in the `Duktape.Buffer(nodeBuffer)` call, so if you
-want to preserve that information into e.g. a `Uint8Array` sharing the same
+Slice information is lost in the `ArrayBuffer.plainOf(nodeBuffer)` call, so if
+you want to preserve that information into e.g. a `Uint8Array` sharing the same
 underlying buffer, you need to carry over the information manually:
 
 ```js
 var nodeBuffer = new Buffer('ABCDEFGH');
 var nodeSlice = nodeBuffer.slice(3, 6);  // 'DEF' part of nodeBuffer
-var plainBuffer = Duktape.Buffer(nodeSlice);
-var arrayBuffer = new ArrayBuffer(plainBuffer);
+var plainBuffer = ArrayBuffer.plainOf(nodeSlice);
+var arrayBuffer = Object(plainBuffer);
 var u8Slice = new Uint8Array(arrayBuffer, nodeSlice.byteOffset, nodeSlice.byteLength);
 u8Slice[0] = 0xff;  // visible through nodeBuffer too
 
@@ -817,63 +976,14 @@ Or less verbosely:
 
 ```js
 var nodeSlice = new Buffer('ABCDEFGH').slice(3, 6);
-var arrayBuffer = new ArrayBuffer(Duktape.Buffer(nodeSlice));
+var arrayBuffer = Object(ArrayBuffer.plainOf(nodeSlice));
 var u8Slice = new Uint8Array(arrayBuffer, nodeSlice.byteOffset, nodeSlice.byteLength);
 ```
 
 This is still not very convenient so "slice copying" may need improvements in
 future versions.
 
-### Typed array constructors accept a plain buffer argument since Duktape 1.4.0
-
-Typed array constructors recognize objects as potential providers of
-initialization values, e.g. as:
-
-```
-duk> u8 = new Uint8Array([ 0x41, 0x42, 0x43, 0x44 ]); Duktape.enc('jx', u8);
-= |41424344|
-```
-
-`Duktape.Buffer` values as similarly treated as value initializers, and since
-Duktape 1.4.0 a plain buffer value is treated the same as a `Duktape.Buffer`:
-
-```
-duk> buf = new Duktape.Buffer('foo'); Duktape.enc('jx', new Int16Array(buf));
-= |66006f006f00|
-duk> buf = Duktape.Buffer('foo'); Duktape.enc('jx', new Int16Array(buf));
-= |66006f006f00|
-```
-
-Because the argument is treated as an initializer, a new underlying buffer
-will be created instead of sharing the existing one.
-
-Non-object arguments are integer coerced and used as a length for the new
-`ArrayBuffer` automatically created (Duktape 1.3.0 would treat plain buffers
-this way too, which is quite confusing).  For example the string `"5"` gets
-treated as a length:
-
-```js
-var u8 = new Uint8Array("5");
-print(u8.byteLength);  // -> 5
-```
-
-If you want to reuse a plain buffer as the underlying buffer of a typed
-array, you need to go through an `ArrayBuffer` which does recognize plain
-buffers specially:
-
-```js
-var plain = Duktape.dec('hex', '4142434445464748');
-var u8 = new Uint8Array(new ArrayBuffer(plain));
-print(u8.byteLength);  // -> 8
-u8[2] = 0xff;
-
-// Both 'plain' and 'u8' were modified because 'plain' is the shared
-// underlying buffer.
-print(Duktape.enc('jx', plain));  // -> |4142ff4445464748|
-print(Duktape.enc('jx', u8));     // -> |4142ff4445464748|
-```
-
-### Typed array constructors interpret other buffer objects as value arrays
+### Typed array constructors treat a plain buffer like an ArrayBuffer
 
 When a buffer object is given as an argument to `new Uint32Array()` or other
 typed array constructor, a new underlying buffer is created and the argument
@@ -902,6 +1012,8 @@ print(Duktape.enc('jx', Duktape.Buffer(i32)));
 This behavior is available for typed array constructors but *not* for the
 `ArrayBuffer` constructor (this is defined in Khronos/ES6 specifications).
 
+FIXME:
+
 As a custom buffer type mixing behavior, the typed array constructors allow
 any buffer object to be used as input.  For example, to initialize a new
 view (and a new underlying `ArrayBuffer`) using a Node.js Buffer as input:
@@ -916,7 +1028,7 @@ print(Duktape.enc('jx', Duktape.Buffer(u16)));
 // |41004200430044004500460047004800|
 ```
 
-Starting from Duktape 1.4.0 a plain buffer argument is treated the same as
+FIXME: Starting from Duktape 1.4.0 a plain buffer argument is treated the same as
 `Duktape.Buffer`, i.e. used as a value initializer.
 
 ## Avoiding Duktape custom behaviors
@@ -1014,3 +1126,20 @@ When an external plain buffer is used, it's up to user code to ensure that
 the pointer and length configured into the buffer are valid, i.e. all bytes
 in that range are readable and writable.  If this is not the case, memory
 unsafe behavior may happen.
+
+FIXME: plain buffer notes:
+
+FIXME: duk_to_string() vs. duk_buffer_to_string()
+
+FIXME: creating a plain buffer in Ecmascript code; if not possible, explain clearly
+
+FIXME: section on converting a buffer to string in Ecmascript, and vice versa;
+       there's no standard idiom to do it conveniently!
+
+FIXME: Object.defineProperty() and Object.defineProperties() on buffer objects
+       (and plain buffers); index props
+
+FIXME: mixed use is slow (unless explicitly mentioned); by default a plain buffer
+       is promoted internally to an ArrayBuffer for every call
+
+FIXME: resizing
